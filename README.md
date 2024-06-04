@@ -20,6 +20,7 @@ Arguments:
 Options:
   -e, --err-path <STDERR_PATH>  Path to write stderr to
   -o, --out-path <STDOUT_PATH>  Path to write stdout to
+  -p, --pid-file <PID_FILE>     Path to the place to write a pidfile to
       --sig <ROTATED_SIGNAL>    Signal notifiying that the file paths have been rotated [default: sighup] [possible values: sighup, sigusr1, sigusr2]
   -h, --help                    Print help
   -V, --version                 Print version
@@ -28,5 +29,5 @@ Options:
 ## Example
 
 ```sh
-clio --err-path /var/log/app.err.log --out-path /var/log/app.out.log --sig sighup -- app --flag1 --flag2
+clio --err-path /var/log/app.err.log --out-path /var/log/app.out.log --sig sighup --pid-file app.pid -- app --flag1 --flag2
 ```

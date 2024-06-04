@@ -34,10 +34,24 @@ struct Args {
     stderr_path: PathBuf,
     #[arg(short = 'o', long = "out-path", help = "Path to write stdout to")]
     stdout_path: PathBuf,
+    #[arg(
+        short = 'p',
+        long = "pid-file",
+        help = "Path to the place to write a pidfile to"
+    )]
+    pid_file: Option<PathBuf>,
     #[arg(long = "sig", value_enum, help="Signal notifiying that the file paths have been rotated", default_value_t = HandledSignals::SIGHUP)]
     rotated_signal: HandledSignals,
-    #[arg(last = true, help="Command to run")]
+    #[arg(last = true, help = "Command to run")]
     cmd: Vec<String>,
+}
+
+async fn write_pid_file(p: &PathBuf) -> anyhow::Result<()> {
+    let mut pid_file = File::options().create(true).truncate(true).open(p).await?;
+    let id = std::process::id().to_string();
+    pid_file.write(id.as_bytes()).await?;
+    pid_file.sync_all().await?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -61,16 +75,30 @@ async fn main() -> anyhow::Result<ExitCode> {
         .stderr(Stdio::piped())
         .spawn()?;
     let mut stdout_reader = child
-        .stdout.take()
+        .stdout
+        .take()
         .expect("no valid stdout from command available");
     let mut stdout_buffer = [0; 8 * 1024];
     let mut stderr_reader = child
-        .stderr.take()
+        .stderr
+        .take()
         .expect("no valid stderr from command available");
     let mut stderr_buffer = [0; 8 * 1024];
 
-    let mut stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
-    let mut stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
+    let mut stderr_writer = File::options()
+        .append(true)
+        .create(true)
+        .open(stderr_path)
+        .await?;
+    let mut stdout_writer = File::options()
+        .append(true)
+        .create(true)
+        .open(stdout_path)
+        .await?;
+    // TODO(jwall): Write our pidfile somehwere
+    if let Some(p) = args.pid_file {
+        write_pid_file(&p).await?
+    }
     // TODO(jwall): Forward all other signals to the running process.
     loop {
         // NOTE(zaphar): Each select block will run exclusively of the other blocks using a
