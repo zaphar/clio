@@ -52,23 +52,26 @@ async fn main() -> anyhow::Result<ExitCode> {
     let stdout_path = &args.stdout_path;
     // Setup our signal hook.
     let handled_sig: SignalKind = (&args.rotated_signal).into();
-    let mut signal_stream = signal(handled_sig)?;
+    let mut rotation_signal_stream = signal(handled_sig)?;
+    let mut sigterm_stream = signal(SignalKind::terminate())?;
+    let mut sigkill_stream = signal(SignalKind::from_raw(9))?;
+    let mut sigquit_stream = signal(SignalKind::quit())?;
     // Setup our output wiring.
     let app_name = match args.cmd.first() {
         Some(n) => n,
         None => return Err(anyhow::anyhow!("No command specified")),
     };
-    let child = Command::new(app_name)
+    let mut child = Command::new(app_name)
         .args(args.cmd.into_iter().skip(1).collect::<Vec<String>>())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
     let mut stdout_reader = child
-        .stdout
+        .stdout.take()
         .expect("no valid stdout from command available");
     let mut stdout_buffer = [0; 8 * 1024];
     let mut stderr_reader = child
-        .stderr
+        .stderr.take()
         .expect("no valid stderr from command available");
     let mut stderr_buffer = [0; 8 * 1024];
 
@@ -92,7 +95,6 @@ async fn main() -> anyhow::Result<ExitCode> {
                     Err(e) => {
                         // TODO(zaphar): This likely means the command has broken badly. We should
                         // do the right thing here..
-                        todo!()
                     },
                 }
             }
@@ -113,7 +115,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                     },
                 }
             }
-            _ = signal_stream.recv() => {
+            _ = rotation_signal_stream.recv() => {
                 // on sighub sync and reopen our files
                 // NOTE(zaphar): This will cause the previously opened handles to get
                 // dropped which will cause them to close assuming all the io has finished. This is why we sync
@@ -123,7 +125,43 @@ async fn main() -> anyhow::Result<ExitCode> {
                 _ = stdout_writer.sync_all().await;
                 stderr_writer = File::options().append(true).open(stderr_path).await?;
                 stdout_writer = File::options().append(true).open(stdout_path).await?;
-                // wait for a signal
+            }
+            _ = sigterm_stream.recv() => {
+                // NOTE(zaphar): This is a giant hack.
+                // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
+                // unnecessary.
+                use nix::{
+                    sys::signal::{kill, Signal::SIGTERM},
+                    unistd::Pid,
+                };
+                if let Some(pid) = child.id() {
+                    // If the child hasn't already completed, send a SIGTERM.
+                    if let Err(e) = kill(Pid::from_raw(pid.try_into().expect("Invalid PID")), SIGTERM) {
+                        eprintln!("Failed to forward SIGTERM to child process: {}", e);
+                    }
+                }
+            }
+            _ = sigquit_stream.recv() => {
+                // NOTE(zaphar): This is a giant hack.
+                // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
+                // unnecessary.
+                use nix::{
+                    sys::signal::{kill, Signal::SIGQUIT},
+                    unistd::Pid,
+                };
+                if let Some(pid) = child.id() {
+                    // If the child hasn't already completed, send a SIGTERM.
+                    if let Err(e) = kill(Pid::from_raw(pid.try_into().expect("Invalid PID")), SIGQUIT) {
+                        eprintln!("Failed to forward SIGTERM to child process: {}", e);
+                    }
+                }
+            }
+            _ = sigkill_stream.recv() => {
+                child.start_kill()?;
+            }
+            result = child.wait() => {
+                // The child has finished
+                return Ok(ExitCode::from(result?.code().expect("No exit code for process") as u8));
             }
         }
     }
