@@ -1,4 +1,5 @@
 use std::convert::From;
+use std::pin::Pin;
 use std::path::PathBuf;
 use std::process::{ExitCode, Stdio};
 
@@ -6,7 +7,7 @@ use anyhow;
 use clap::{Parser, ValueEnum};
 use tokio;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -51,7 +52,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     let stdout_path = &args.stdout_path;
     // Setup our signal hook.
     let handled_sig: SignalKind = (&args.rotated_signal).into();
-    let mut signal_iter = signal(handled_sig)?;
+    let mut signal_stream = signal(handled_sig)?;
     // Setup our output wiring.
     let app_name = match args.cmd.first() {
         Some(n) => n,
@@ -73,7 +74,10 @@ async fn main() -> anyhow::Result<ExitCode> {
 
     let mut stderr_writer = File::options().append(true).open(stderr_path).await?;
     let mut stdout_writer = File::options().append(true).open(stdout_path).await?;
+    // TODO(jwall): Forward all other signals to the running process.
     loop {
+        // NOTE(zaphar): Each select block will run exclusively of the other blocks using a
+        // psuedorandom order.
         tokio::select! {
             // wait for a read on stdout
             out_result = stdout_reader.read(&mut stdout_buffer) => {
@@ -109,7 +113,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                     },
                 }
             }
-            _ = signal_iter.recv() => {
+            _ = signal_stream.recv() => {
                 // on sighub sync and reopen our files
                 // NOTE(zaphar): This will cause the previously opened handles to get
                 // dropped which will cause them to close assuming all the io has finished. This is why we sync
