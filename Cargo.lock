@@ -158,6 +158,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
 
 [[package]]
+name = "clio"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "nix",
+ "tokio",
+]
+
+[[package]]
 name = "colorchoice"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,16 +202,6 @@ name = "libc"
 version = "0.2.155"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
-
-[[package]]
-name = "logme"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "nix",
- "tokio",
-]
 
 [[package]]
 name = "memchr"
