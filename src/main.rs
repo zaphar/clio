@@ -1,5 +1,4 @@
 use std::convert::From;
-use std::pin::Pin;
 use std::path::PathBuf;
 use std::process::{ExitCode, Stdio};
 
@@ -7,7 +6,7 @@ use anyhow;
 use clap::{Parser, ValueEnum};
 use tokio;
 use tokio::fs::File;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -88,13 +87,15 @@ async fn main() -> anyhow::Result<ExitCode> {
                     Ok(n) => {
                         // TODO(zaphar): It is possible we should try to reopen the file if this
                         // write fails in some cases.
-                        if let Err(e) = stdout_writer.write(&stdout_buffer[0..n]).await {
-                            todo!();
+                        if let Err(_) = stdout_writer.write(&stdout_buffer[0..n]).await {
+                            stdout_writer = File::options().append(true).open(stdout_path).await?;
                         }
                     },
-                    Err(e) => {
+                    Err(_) => {
                         // TODO(zaphar): This likely means the command has broken badly. We should
-                        // do the right thing here..
+                        // do the right thing here.
+                        let result = child.wait().await?;
+                        return Ok(ExitCode::from(result.code().expect("No exit code for process") as u8));
                     },
                 }
             }
@@ -104,14 +105,15 @@ async fn main() -> anyhow::Result<ExitCode> {
                     Ok(n) => {
                         // TODO(zaphar): It is possible we should try to reopen the file if this
                         // write fails in some cases.
-                        if let Err(e) = stderr_writer.write(&stderr_buffer[0..n]).await {
-                            todo!()
+                        if let Err(_) = stderr_writer.write(&stderr_buffer[0..n]).await {
+                            stderr_writer = File::options().append(true).open(stderr_path).await?;
                         }
                     },
-                    Err(e) => {
+                    Err(_) => {
                         // TODO(zaphar): This likely means the command has broken badly. We should
                         // do the right thing here..
-                        todo!()
+                        let result = child.wait().await?;
+                        return Ok(ExitCode::from(result.code().expect("No exit code for process") as u8));
                     },
                 }
             }
