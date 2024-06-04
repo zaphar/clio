@@ -36,11 +36,7 @@ struct Args {
     stdout_path: PathBuf,
     #[arg(long = "sig", value_enum, help="Signal notifiying that the file paths have been rotated", default_value_t = HandledSignals::SIGHUP)]
     rotated_signal: HandledSignals,
-    #[arg(
-        long = "size",
-        help = "Optional size at which to rotate the files, conficts with --sig",
-        conflicts_with = "rotated_signal"
-    )]
+    #[arg(last = true, help="Command to run")]
     cmd: Vec<String>,
 }
 
