@@ -47,7 +47,7 @@ struct Args {
 }
 
 async fn write_pid_file(p: &PathBuf) -> anyhow::Result<()> {
-    let mut pid_file = File::options().create(true).truncate(true).open(p).await?;
+    let mut pid_file = File::create(p).await?;
     let id = std::process::id().to_string();
     pid_file.write(id.as_bytes()).await?;
     pid_file.sync_all().await?;
