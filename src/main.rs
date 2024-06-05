@@ -1,6 +1,6 @@
 use std::convert::From;
 use std::path::PathBuf;
-use std::process::{ExitCode, Stdio};
+use std::process::{ExitCode, ExitStatus, Stdio};
 
 use anyhow;
 use clap::{Parser, ValueEnum};
@@ -54,6 +54,18 @@ async fn write_pid_file(p: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn cleanup(
+    result: std::io::Result<ExitStatus>,
+    pid_file: &Option<PathBuf>,
+) -> anyhow::Result<ExitCode> {
+    if let Some(p) = pid_file {
+        tokio::fs::remove_file(p).await?;
+    }
+    return Ok(ExitCode::from(
+        result?.code().expect("No exit code for process") as u8,
+    ));
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<ExitCode> {
     let args = Args::parse();
@@ -96,8 +108,8 @@ async fn main() -> anyhow::Result<ExitCode> {
         .open(stdout_path)
         .await?;
     // TODO(jwall): Write our pidfile somehwere
-    if let Some(p) = args.pid_file {
-        write_pid_file(&p).await?
+    if let Some(p) = &args.pid_file {
+        write_pid_file(p).await?
     }
     // TODO(jwall): Forward all other signals to the running process.
     loop {
@@ -117,8 +129,8 @@ async fn main() -> anyhow::Result<ExitCode> {
                     Err(_) => {
                         // TODO(zaphar): This likely means the command has broken badly. We should
                         // do the right thing here.
-                        let result = child.wait().await?;
-                        return Ok(ExitCode::from(result.code().expect("No exit code for process") as u8));
+                        let result = child.wait().await;
+                        return cleanup(result, &args.pid_file).await;
                     },
                 }
             }
@@ -135,8 +147,8 @@ async fn main() -> anyhow::Result<ExitCode> {
                     Err(_) => {
                         // TODO(zaphar): This likely means the command has broken badly. We should
                         // do the right thing here..
-                        let result = child.wait().await?;
-                        return Ok(ExitCode::from(result.code().expect("No exit code for process") as u8));
+                        let result = child.wait().await;
+                        return cleanup(result, &args.pid_file).await;
                     },
                 }
             }
@@ -183,7 +195,7 @@ async fn main() -> anyhow::Result<ExitCode> {
             }
             result = child.wait() => {
                 // The child has finished
-                return Ok(ExitCode::from(result?.code().expect("No exit code for process") as u8));
+                return cleanup(result, &args.pid_file).await;
             }
         }
     }
