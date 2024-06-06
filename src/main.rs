@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<ExitCode> {
     let mut rotation_signal_stream = signal(handled_sig)?;
     let mut sigterm_stream = signal(SignalKind::terminate())?;
     let mut sigquit_stream = signal(SignalKind::quit())?;
+    let mut sigint_stream = signal(SignalKind::interrupt())?;
     // Setup our output wiring.
     let app_name = match args.cmd.first() {
         Some(n) => n,
@@ -190,6 +191,21 @@ async fn main() -> anyhow::Result<ExitCode> {
                     // If the child hasn't already completed, send a SIGTERM.
                     if let Err(e) = kill(Pid::from_raw(pid.try_into().expect("Invalid PID")), SIGQUIT) {
                         eprintln!("Failed to forward SIGQUIT to child process: {}", e);
+                    }
+                }
+            }
+            _ = sigint_stream.recv() => {
+                // NOTE(zaphar): This is a giant hack.
+                // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
+                // unnecessary.
+                use nix::{
+                    sys::signal::{kill, Signal::SIGINT},
+                    unistd::Pid,
+                };
+                if let Some(pid) = child.id() {
+                    // If the child hasn't already completed, send a SIGTERM.
+                    if let Err(e) = kill(Pid::from_raw(pid.try_into().expect("Invalid PID")), SIGINT) {
+                        eprintln!("Failed to forward SIGINT to child process: {}", e);
                     }
                 }
             }
