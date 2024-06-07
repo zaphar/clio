@@ -129,6 +129,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                 match out_result {
                     Ok(n) => {
                         if !check_for_stale_handle(&stdout_writer)? {
+                            eprintln!("Detected closed stdout handle");
                             stdout_writer.flush().await?;
                             stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
                         }
@@ -150,6 +151,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                 match err_result {
                     Ok(n) => {
                         if !check_for_stale_handle(&stderr_writer)? {
+                            eprintln!("Detected closed stderr handle");
                             stderr_writer.flush().await?;
                             stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
                         }
@@ -167,17 +169,18 @@ async fn main() -> anyhow::Result<ExitCode> {
                 }
             }
             _ = rotation_signal_stream.recv() => {
-                // on sighub sync and reopen our files
+                // on sighup sync and reopen our files
                 // NOTE(zaphar): This will cause the previously opened handles to get
                 // dropped which will cause them to close assuming all the io has finished. This is why we sync
                 // before reopening the files.
-                // TODO(zaphar): These should do something in the event of an error
+                eprintln!("got rotation signal");
                 _ = stderr_writer.sync_all().await;
                 _ = stdout_writer.sync_all().await;
                 stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
                 stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
             }
             _ = sigterm_stream.recv() => {
+                eprintln!("got sigterm signal");
                 // NOTE(zaphar): This is a giant hack.
                 // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
                 // unnecessary.
@@ -193,6 +196,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                 }
             }
             _ = sigquit_stream.recv() => {
+                eprintln!("got sigquit signal");
                 // NOTE(zaphar): This is a giant hack.
                 // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
                 // unnecessary.
@@ -208,6 +212,7 @@ async fn main() -> anyhow::Result<ExitCode> {
                 }
             }
             _ = sigint_stream.recv() => {
+                eprintln!("got sigint signal");
                 // NOTE(zaphar): This is a giant hack.
                 // If https://github.com/tokio-rs/tokio/issues/3379 ever get's implemented it will become
                 // unnecessary.
