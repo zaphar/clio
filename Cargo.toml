@@ -9,5 +9,5 @@ description = "A small log redirection utility"
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.4", features = ["derive"] }
-nix = { version = "0.29.0", features = ["signal", "process"] }
+nix = { version = "0.29.0", features = ["signal", "process", "fs"] }
 tokio = { version = "1.38.0", features = ["process", "signal", "rt", "rt-multi-thread", "macros", "io-util", "fs"] }

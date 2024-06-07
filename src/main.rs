@@ -1,4 +1,5 @@
 use std::convert::From;
+use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::process::{ExitCode, ExitStatus, Stdio};
 
@@ -66,6 +67,12 @@ async fn cleanup(
     ));
 }
 
+fn check_for_stale_handle(f: &File) -> anyhow::Result<bool> {
+    let fd = f.as_raw_fd();
+    let stats = nix::sys::stat::fstat(fd)?;
+    return Ok(stats.st_nlink > 0);
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<ExitCode> {
     let args = Args::parse();
@@ -121,9 +128,12 @@ async fn main() -> anyhow::Result<ExitCode> {
             out_result = stdout_reader.read(&mut stdout_buffer) => {
                 match out_result {
                     Ok(n) => {
-                        // TODO(zaphar): It is possible we should try to reopen the file if this
-                        // write fails in some cases.
+                        if !check_for_stale_handle(&stdout_writer)? {
+                            stdout_writer.flush().await?;
+                            stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
+                        }
                         if let Err(_) = stdout_writer.write(&stdout_buffer[0..n]).await {
+                            stdout_writer.flush().await?;
                             stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
                         }
                     },
@@ -139,9 +149,12 @@ async fn main() -> anyhow::Result<ExitCode> {
             err_result = stderr_reader.read(&mut stderr_buffer) => {
                 match err_result {
                     Ok(n) => {
-                        // TODO(zaphar): It is possible we should try to reopen the file if this
-                        // write fails in some cases.
+                        if !check_for_stale_handle(&stderr_writer)? {
+                            stderr_writer.flush().await?;
+                            stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
+                        }
                         if let Err(_) = stderr_writer.write(&stderr_buffer[0..n]).await {
+                            stderr_writer.flush().await?;
                             stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
                         }
                     },
