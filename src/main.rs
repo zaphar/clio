@@ -43,6 +43,12 @@ struct Args {
     pid_file: Option<PathBuf>,
     #[arg(long = "sig", value_enum, help="Signal notifiying that the file paths have been rotated", default_value_t = HandledSignals::SIGHUP)]
     rotated_signal: HandledSignals,
+    #[arg(
+        long = "paranoid",
+        help = "Be paranoid about the open file descriptors",
+        default_value_t = false
+    )]
+    paranoid: bool,
     #[arg(last = true, help = "Command to run")]
     cmd: Vec<String>,
 }
@@ -67,10 +73,17 @@ async fn cleanup(
     ));
 }
 
-fn check_for_stale_handle(f: &File) -> anyhow::Result<bool> {
+fn check_for_stale_handle(f: &File, path: &PathBuf) -> anyhow::Result<bool> {
     let fd = f.as_raw_fd();
-    let stats = nix::sys::stat::fstat(fd)?;
-    return Ok(stats.st_nlink > 0);
+    let stats = match nix::sys::stat::fstat(fd) {
+        Ok(st) => st,
+        Err(_) => return Ok(false),
+    };
+    let checkstats = match nix::sys::stat::stat(path) {
+        Ok(st) => st,
+        Err(_) => return Ok(false),
+    };
+    return Ok(stats.st_nlink > 0 && stats.st_ino == checkstats.st_ino);
 }
 
 #[tokio::main]
@@ -119,20 +132,30 @@ async fn main() -> anyhow::Result<ExitCode> {
     if let Some(p) = &args.pid_file {
         write_pid_file(p).await?
     }
-    // TODO(jwall): Forward all other signals to the running process.
+    let mut check_interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+
     loop {
         // NOTE(zaphar): Each select block will run exclusively of the other blocks using a
         // psuedorandom order.
         tokio::select! {
             // wait for a read on stdout
+            _ = check_interval.tick() => {
+               if args.paranoid {
+                   if !check_for_stale_handle(&stdout_writer, stdout_path)? {
+                       eprintln!("Detected closed stdout handle");
+                       stdout_writer.flush().await?;
+                       stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
+                   }
+                   if !check_for_stale_handle(&stderr_writer, stderr_path)? {
+                       eprintln!("Detected closed stderr handle");
+                       stderr_writer.flush().await?;
+                       stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
+                   }
+                }
+            }
             out_result = stdout_reader.read(&mut stdout_buffer) => {
                 match out_result {
                     Ok(n) => {
-                        if !check_for_stale_handle(&stdout_writer)? {
-                            eprintln!("Detected closed stdout handle");
-                            stdout_writer.flush().await?;
-                            stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
-                        }
                         if let Err(_) = stdout_writer.write(&stdout_buffer[0..n]).await {
                             stdout_writer.flush().await?;
                             stdout_writer = File::options().append(true).create(true).open(stdout_path).await?;
@@ -150,11 +173,6 @@ async fn main() -> anyhow::Result<ExitCode> {
             err_result = stderr_reader.read(&mut stderr_buffer) => {
                 match err_result {
                     Ok(n) => {
-                        if !check_for_stale_handle(&stderr_writer)? {
-                            eprintln!("Detected closed stderr handle");
-                            stderr_writer.flush().await?;
-                            stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
-                        }
                         if let Err(_) = stderr_writer.write(&stderr_buffer[0..n]).await {
                             stderr_writer.flush().await?;
                             stderr_writer = File::options().append(true).create(true).open(stderr_path).await?;
