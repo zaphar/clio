@@ -16,7 +16,7 @@
       rust-overlay.overlays.default
     ];
     pkgs = import nixpkgs { inherit system overlays; };
-    rust-bin = pkgs.rust-bin.stable."1.78.0".default;
+    rust-bin = pkgs.rust-bin.stable.latest.default;
     naersk-lib = pkgs.callPackage naersk {
         rustc = rust-bin;
         cargo = rust-bin;
@@ -30,7 +30,7 @@
         buildInputs =
           (
             if pkgs.stdenv.isDarwin
-            then with pkgs.darwin.apple_sdk.frameworks; [Security SystemConfiguration]
+            then [ ]
             else [pkgs.openssl]
           )
           ++ [rust-bin];
@@ -40,7 +40,7 @@
     devShell = mkShell {
       buildInputs = (
         if stdenv.isDarwin then
-          [ pkgs.darwin.apple_sdk.frameworks.Security pkg-config ]
+          [ pkg-config ]
         else
         [ ]) ++ [rust-bin];
     };
